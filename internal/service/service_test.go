@@ -79,6 +79,8 @@ func TestCleanServiceName(t *testing.T) {
 		{"Frontend Web", "frontend"},
 		{"Web UI", "frontend"},
 		{"Docker Compose", "compose"},
+		{"Spring Boot", "spring"},
+		{"Java Service", "spring"},
 		{"MyCustomService", "mycustomservice"},
 	}
 

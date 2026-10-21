@@ -9,11 +9,13 @@ A lightweight, high-performance terminal user interface (TUI) built in Go with *
 
 ## ✨ Features
 
-- 🟢 **Live Status & Ports**: Shows real-time service indicators (`● RUNNING`, `◐ STARTING`, `■ STOPPED`, `✖ FAILED`), port mappings (`:3001`, `:5173`), uptime counters, and PIDs.
+- 🟢 **Java with Spring Boot**: Native detection for Maven (`./mvnw spring-boot:run` or `mvn spring-boot:run`) and Gradle (`./gradlew bootRun` or `gradle bootRun`), automatically parsing ports from `application.properties`, `application.yml`/`.yaml`, or defaulting to `:8080`.
+- 🟢 **Full-Stack & Monorepo Aware**: Detects Spring Boot backends in `backend/`, `server/`, `api/`, or at project root, paired with Node frontend servers (`web/`, `client/`, `frontend/`).
+- 🟢 **Live Status & Ports**: Shows real-time service indicators (`● RUNNING`, `◐ STARTING`, `■ STOPPED`, `✖ FAILED`), port mappings (`:8080`, `:3001`, `:5173`), uptime counters, and PIDs.
 - 📜 **Log Streaming**: Unified all-in-one view with colored service tags, plus dedicated single-service tabs.
-- 🔄 **Safe Process Termination**: Uses Linux process groups (`Setpgid`) so shutting down or restarting cleanly terminates the process tree (preventing orphaned Bun, Node, Vite, or Esbuild processes).
+- 🔄 **Safe Process Termination**: Uses Linux process groups (`Setpgid`) so shutting down or restarting cleanly terminates the process tree (preventing orphaned Java, JVM, Bun, Node, Vite, or Esbuild processes).
 - 🐳 **Docker Compose Support**: Automatically hooks into `docker-compose.yml` or `compose.yaml` to stream container logs (`docker compose logs -f --tail=100`).
-- 🔍 **Zero-Config Auto-Detection**: Discovers Bun/NPM/Yarn/PNPM workspaces, backend (`server/`, `api/`, `backend/`), frontend (`web/`, `client/`, `frontend/`), and Docker Compose out-of-the-box.
+- 🔍 **Zero-Config Auto-Detection**: Discovers Maven/Gradle (Spring Boot), Bun/NPM/Yarn/PNPM workspaces, and Docker Compose out-of-the-box.
 - ⚙️ **Configurable**: Fully customizable via `.dev-tui.json`, `dev-tui.json`, or `--config <file>`.
 
 ---

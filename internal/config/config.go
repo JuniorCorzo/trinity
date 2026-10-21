@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // ServiceType indicates whether a service is a local process or docker compose
@@ -85,6 +86,8 @@ func AutoDetect(rootDir string) (*Config, error) {
 		Services: make([]ServiceConfig, 0),
 	}
 
+	usedDirs := make(map[string]bool)
+
 	// 1. Detect Docker Compose
 	composeFiles := []string{"docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"}
 	var foundCompose string
@@ -108,12 +111,30 @@ func AutoDetect(rootDir string) (*Config, error) {
 		})
 	}
 
-	// 2. Detect Backend
-	backendDirs := []string{"server", "backend", "api"}
+	// 2. Detect Backend (Spring Boot Java or Node.js)
+	backendDirs := []string{"server", "backend", "api", "service", "backend-java", "spring-boot", "app"}
+	backendFound := false
+
 	for _, bdir := range backendDirs {
-		pkgPath := filepath.Join(rootDir, bdir, "package.json")
+		bpath := filepath.Join(rootDir, bdir)
+		fi, err := os.Stat(bpath)
+		if err != nil || !fi.IsDir() {
+			continue
+		}
+
+		// Check Spring Boot in backend dir
+		if sbCfg, ok := detectSpringBoot(bpath, rootDir); ok {
+			sbCfg.Name = "Backend"
+			cfg.Services = append(cfg.Services, *sbCfg)
+			backendFound = true
+			usedDirs[bdir] = true
+			break
+		}
+
+		// Check Node backend
+		pkgPath := filepath.Join(bpath, "package.json")
 		if _, err := os.Stat(pkgPath); err == nil {
-			port := detectPort(filepath.Join(rootDir, bdir), 3001)
+			port := detectPort(bpath, 3001)
 			runner := detectRunner(rootDir)
 			cfg.Services = append(cfg.Services, ServiceConfig{
 				Name:      "Backend",
@@ -123,16 +144,32 @@ func AutoDetect(rootDir string) (*Config, error) {
 				Type:      TypeProcess,
 				AutoStart: true,
 			})
+			backendFound = true
+			usedDirs[bdir] = true
 			break
 		}
 	}
 
+	// If no backend folder matched, check if root itself is a Spring Boot project
+	if !backendFound {
+		if sbCfg, ok := detectSpringBoot(rootDir, rootDir); ok {
+			sbCfg.Name = "Backend"
+			cfg.Services = append(cfg.Services, *sbCfg)
+			backendFound = true
+			usedDirs["."] = true
+		}
+	}
+
 	// 3. Detect Frontend
-	frontendDirs := []string{"web", "frontend", "client", "app", "ui"}
+	frontendDirs := []string{"web", "frontend", "client", "ui", "app", "frontend-web"}
 	for _, fdir := range frontendDirs {
-		pkgPath := filepath.Join(rootDir, fdir, "package.json")
+		if usedDirs[fdir] {
+			continue
+		}
+		fpath := filepath.Join(rootDir, fdir)
+		pkgPath := filepath.Join(fpath, "package.json")
 		if _, err := os.Stat(pkgPath); err == nil {
-			port := detectPort(filepath.Join(rootDir, fdir), 5173)
+			port := detectPort(fpath, 5173)
 			runner := detectRunner(rootDir)
 			cfg.Services = append(cfg.Services, ServiceConfig{
 				Name:      "Frontend",
@@ -142,12 +179,13 @@ func AutoDetect(rootDir string) (*Config, error) {
 				Type:      TypeProcess,
 				AutoStart: true,
 			})
+			usedDirs[fdir] = true
 			break
 		}
 	}
 
 	// Fallback if neither backend nor frontend directories matched
-	if len(cfg.Services) == 0 {
+	if len(cfg.Services) == 0 || (len(cfg.Services) == 1 && cfg.Services[0].Type == TypeCompose) {
 		rootPkg := filepath.Join(rootDir, "package.json")
 		if _, err := os.Stat(rootPkg); err == nil {
 			runner := detectRunner(rootDir)
@@ -155,7 +193,7 @@ func AutoDetect(rootDir string) (*Config, error) {
 				Name:      "Dev",
 				Command:   fmt.Sprintf("%s run dev", runner),
 				Dir:       ".",
-				Port:      3000,
+				Port:      detectPort(rootDir, 3000),
 				Type:      TypeProcess,
 				AutoStart: true,
 			})
@@ -163,6 +201,197 @@ func AutoDetect(rootDir string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// detectSpringBoot checks whether dir contains a Maven or Gradle Spring Boot project
+func detectSpringBoot(dir string, rootDir string) (*ServiceConfig, bool) {
+	relDir, err := filepath.Rel(rootDir, dir)
+	if err != nil || relDir == "" {
+		relDir = "."
+	}
+
+	// 1. Check Maven (pom.xml)
+	pomPath := filepath.Join(dir, "pom.xml")
+	if data, err := os.ReadFile(pomPath); err == nil {
+		content := string(data)
+		if strings.Contains(content, "spring-boot") || strings.Contains(content, "org.springframework") {
+			cmd := "mvn spring-boot:run"
+			if _, err := os.Stat(filepath.Join(dir, "mvnw")); err == nil {
+				cmd = "./mvnw spring-boot:run"
+			} else if relPath, err := filepath.Rel(dir, filepath.Join(rootDir, "mvnw")); err == nil {
+				if _, statErr := os.Stat(filepath.Join(rootDir, "mvnw")); statErr == nil {
+					cmd = fmt.Sprintf("%s spring-boot:run", relPath)
+				}
+			}
+
+			port := detectSpringBootPort(dir)
+			return &ServiceConfig{
+				Name:      "Backend",
+				Command:   cmd,
+				Dir:       relDir,
+				Port:      port,
+				Type:      TypeProcess,
+				AutoStart: true,
+			}, true
+		}
+	}
+
+	// 2. Check Gradle (build.gradle or build.gradle.kts)
+	gradleFiles := []string{"build.gradle", "build.gradle.kts"}
+	for _, gf := range gradleFiles {
+		gPath := filepath.Join(dir, gf)
+		if data, err := os.ReadFile(gPath); err == nil {
+			content := string(data)
+			if strings.Contains(content, "spring-boot") || strings.Contains(content, "org.springframework.boot") {
+				cmd := "gradle bootRun"
+				if _, err := os.Stat(filepath.Join(dir, "gradlew")); err == nil {
+					cmd = "./gradlew bootRun"
+				} else if relPath, err := filepath.Rel(dir, filepath.Join(rootDir, "gradlew")); err == nil {
+					if _, statErr := os.Stat(filepath.Join(rootDir, "gradlew")); statErr == nil {
+						cmd = fmt.Sprintf("%s bootRun", relPath)
+					}
+				}
+
+				port := detectSpringBootPort(dir)
+				return &ServiceConfig{
+					Name:      "Backend",
+					Command:   cmd,
+					Dir:       relDir,
+					Port:      port,
+					Type:      TypeProcess,
+					AutoStart: true,
+				}, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// detectSpringBootPort checks application configuration files for server.port or PORT env
+func detectSpringBootPort(dir string) int {
+	candidates := []string{
+		"src/main/resources/application-local.properties",
+		"src/main/resources/application-local.yml",
+		"src/main/resources/application-local.yaml",
+		"src/main/resources/application-dev.properties",
+		"src/main/resources/application-dev.yml",
+		"src/main/resources/application-dev.yaml",
+		"src/main/resources/application.properties",
+		"src/main/resources/application.yml",
+		"src/main/resources/application.yaml",
+		"config/application.properties",
+		"config/application.yml",
+		"config/application.yaml",
+		"application.properties",
+		"application.yml",
+		"application.yaml",
+	}
+
+	for _, cand := range candidates {
+		data, err := os.ReadFile(filepath.Join(dir, cand))
+		if err != nil {
+			continue
+		}
+		if strings.HasSuffix(cand, ".properties") {
+			if port := parsePropertiesPort(data); port > 0 {
+				return port
+			}
+		} else {
+			if port := parseYamlPort(data); port > 0 {
+				return port
+			}
+		}
+	}
+
+	if envPort := detectEnvPort(dir); envPort > 0 {
+		return envPort
+	}
+
+	return 8080
+}
+
+func parsePropertiesPort(data []byte) int {
+	lines := strings.Split(string(data), "\n")
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") || line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "server.port") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) < 2 {
+				parts = strings.SplitN(line, ":", 2)
+			}
+			if len(parts) == 2 {
+				val := strings.TrimSpace(parts[1])
+				if p := extractPortNumber(val); p > 0 {
+					return p
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func parseYamlPort(data []byte) int {
+	lines := strings.Split(string(data), "\n")
+	inServerBlock := false
+	serverIndent := 0
+
+	for _, rawLine := range lines {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Direct inline key: server.port: 8080
+		if strings.HasPrefix(trimmed, "server.port:") {
+			val := strings.TrimSpace(strings.TrimPrefix(trimmed, "server.port:"))
+			if p := extractPortNumber(val); p > 0 {
+				return p
+			}
+		}
+
+		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " "))
+		if strings.HasPrefix(trimmed, "server:") {
+			inServerBlock = true
+			serverIndent = indent
+			continue
+		}
+
+		if inServerBlock {
+			if indent <= serverIndent && !strings.HasPrefix(trimmed, "-") {
+				inServerBlock = false
+				continue
+			}
+			if strings.HasPrefix(trimmed, "port:") {
+				val := strings.TrimSpace(strings.TrimPrefix(trimmed, "port:"))
+				if p := extractPortNumber(val); p > 0 {
+					return p
+				}
+			}
+		}
+	}
+	return 0
+}
+
+var placeholderRegex = regexp.MustCompile(`\$\{[^:]+:([0-9]+)\}`)
+var digitsRegex = regexp.MustCompile(`[0-9]+`)
+
+func extractPortNumber(val string) int {
+	val = strings.Trim(val, `"' `)
+	if m := placeholderRegex.FindStringSubmatch(val); len(m) > 1 {
+		if p, err := strconv.Atoi(m[1]); err == nil {
+			return p
+		}
+	}
+	if m := digitsRegex.FindString(val); m != "" {
+		if p, err := strconv.Atoi(m); err == nil {
+			return p
+		}
+	}
+	return 0
 }
 
 func detectRunner(rootDir string) string {
@@ -178,9 +407,9 @@ func detectRunner(rootDir string) string {
 	return "npm"
 }
 
-func detectPort(dir string, defaultPort int) int {
+func detectEnvPort(dir string) int {
 	envFiles := []string{".env", ".env.local", ".env.development"}
-	portRegex := regexp.MustCompile(`(?m)^PORT\s*=\s*([0-9]+)`)
+	portRegex := regexp.MustCompile(`(?m)^(?:SERVER_PORT|PORT)\s*=\s*([0-9]+)`)
 	for _, env := range envFiles {
 		data, err := os.ReadFile(filepath.Join(dir, env))
 		if err == nil {
@@ -191,6 +420,13 @@ func detectPort(dir string, defaultPort int) int {
 				}
 			}
 		}
+	}
+	return 0
+}
+
+func detectPort(dir string, defaultPort int) int {
+	if p := detectEnvPort(dir); p > 0 {
+		return p
 	}
 	return defaultPort
 }

@@ -18,6 +18,7 @@ var (
 	ColorBackend  = lipgloss.Color("#00D7D7")
 	ColorFrontend = lipgloss.Color("#BD93F9")
 	ColorCompose  = lipgloss.Color("#50FA7B")
+	ColorSpring   = lipgloss.Color("#6DB33F")
 	ColorDefault  = lipgloss.Color("#F8F8F2")
 
 	HeaderStyle = lipgloss.NewStyle().
@@ -82,6 +83,8 @@ var (
 
 func ServiceColor(name string) lipgloss.TerminalColor {
 	switch name {
+	case "spring":
+		return ColorSpring
 	case "backend":
 		return ColorBackend
 	case "frontend":

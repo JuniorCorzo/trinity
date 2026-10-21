@@ -460,6 +460,8 @@ func (m *Manager) RestartAll() {
 func CleanServiceName(name string) string {
 	lower := strings.ToLower(name)
 	switch {
+	case strings.Contains(lower, "spring") || strings.Contains(lower, "java"):
+		return "spring"
 	case strings.Contains(lower, "back"):
 		return "backend"
 	case strings.Contains(lower, "front") || strings.Contains(lower, "web"):

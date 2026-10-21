@@ -79,10 +79,55 @@ var (
 	AutoScrollPaused = lipgloss.NewStyle().
 				Foreground(ColorWarning).
 				Bold(true)
+
+	ColorGitBranch   = lipgloss.Color("#BD93F9")
+	ColorGitWorktree = lipgloss.Color("#FF79C6")
+	ColorGitDirty    = lipgloss.Color("#FFB86C")
+
+	GitBranchBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorGitBranch)
+
+	GitWorktreeBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorGitWorktree)
+
+	GitDirtyBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorGitDirty)
+
+	GitCleanBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorSuccess)
+
+	ModalContainer = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorPrimary).
+			Background(lipgloss.Color("#161622")).
+			Padding(1, 2)
+
+	ModalTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorWhite).
+			Background(ColorPrimary).
+			Padding(0, 1)
+
+	ModalSelected = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorCyan).
+			Background(lipgloss.Color("#2E2E44"))
+
+	ModalNormal = lipgloss.NewStyle().
+			Foreground(ColorDefault)
+
+	ModalDim = lipgloss.NewStyle().
+			Foreground(ColorMuted)
 )
 
 func ServiceColor(name string) lipgloss.TerminalColor {
 	switch name {
+	case "git":
+		return ColorGitBranch
 	case "spring":
 		return ColorSpring
 	case "backend":

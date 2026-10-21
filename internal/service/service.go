@@ -457,6 +457,25 @@ func (m *Manager) RestartAll() {
 	m.StartAll()
 }
 
+func (m *Manager) GetRootDir() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.rootDir
+}
+
+func (m *Manager) ResetServices(cfg *config.Config, rootDir string) {
+	m.StopAll()
+	m.mu.Lock()
+	m.rootDir = rootDir
+	m.Services = make([]*Service, len(cfg.Services))
+	for i, sc := range cfg.Services {
+		m.Services[i] = NewService(i, sc, rootDir)
+	}
+	m.mu.Unlock()
+	m.notifyStatus()
+}
+
+
 func CleanServiceName(name string) string {
 	lower := strings.ToLower(name)
 	switch {

@@ -4,12 +4,17 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+)
+
+var (
+	ErrNotGitRepo = errors.New("not a git repository")
 )
 
 // WorktreeInfo holds metadata for a single git worktree

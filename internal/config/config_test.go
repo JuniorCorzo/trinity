@@ -15,24 +15,26 @@ func TestAutoDetect(t *testing.T) {
 		wantCommands map[string]string
 	}{
 		{
-			name: "detects backend, frontend and docker compose with bun",
+			name: "prioritizes native processes in server and web subfolders and includes aux db from compose",
 			setupFiles: map[string]string{
 				"bun.lock":            "",
-				"server/package.json": `{"name": "server"}`,
+				"server/package.json": `{"name": "server", "scripts": {"dev": "bun --watch src/index.ts"}}`,
 				"server/.env":         "PORT=3001\n",
-				"web/package.json":    `{"name": "web"}`,
+				"web/package.json":    `{"name": "web", "scripts": {"dev": "vite"}}`,
 				"web/.env":            "PORT=5173\n",
-				"docker-compose.yml":  "services:\n  app:\n    ports:\n      - \"8080:8080\"\n",
+				"docker-compose.yml":  "services:\n  app:\n    ports:\n      - \"8080:8080\"\n  db:\n    ports:\n      - \"5432:5432\"\n",
+				"package.json":        `{"name": "root-wrapper", "scripts": {"dev": "./scripts/start.sh"}}`,
 			},
-			wantServices: []string{"Docker Compose", "Backend", "Frontend"},
+			wantServices: []string{"Backend", "Frontend", "db"},
 			wantPorts: map[string]int{
-				"Docker Compose": 8080,
-				"Backend":        3001,
-				"Frontend":       5173,
+				"Backend":  3001,
+				"Frontend": 5173,
+				"db":       5432,
 			},
 			wantCommands: map[string]string{
 				"Backend":  "bun run dev",
 				"Frontend": "bun run dev",
+				"db":       "docker compose -f docker-compose.yml logs -f --tail=100 db",
 			},
 		},
 		{
@@ -42,13 +44,11 @@ func TestAutoDetect(t *testing.T) {
 				"backend/mvnw":                                     `#!/bin/sh`,
 				"backend/src/main/resources/application.properties": "server.port=8085\n",
 				"frontend/package.json":                            `{"name": "frontend"}`,
-				"docker-compose.yml":                               "services:\n  db:\n    ports:\n      - \"5432:5432\"\n",
 			},
-			wantServices: []string{"Docker Compose", "Backend", "Frontend"},
+			wantServices: []string{"Backend", "Frontend"},
 			wantPorts: map[string]int{
-				"Docker Compose": 5432,
-				"Backend":        8085,
-				"Frontend":       5173,
+				"Backend":  8085,
+				"Frontend": 5173,
 			},
 			wantCommands: map[string]string{
 				"Backend": "./mvnw spring-boot:run",
@@ -116,13 +116,110 @@ func TestAutoDetect(t *testing.T) {
 			},
 		},
 		{
-			name: "detects npm root dev fallback if no subdirectories",
+			name: "ignores root package.json startup script when no subdirectories or compose exist",
 			setupFiles: map[string]string{
-				"package.json": `{"name": "single-app"}`,
+				"package.json": `{"name": "single-app", "scripts": {"dev": "./scripts/start.sh"}}`,
 			},
-			wantServices: []string{"Dev"},
+			wantServices: []string{},
+			wantPorts:    map[string]int{},
+		},
+		{
+			name: "detects vite frontend with custom port and nestjs backend",
+			setupFiles: map[string]string{
+				"custom-ui/vite.config.ts": `export default { server: { port: 5174 } }`,
+				"custom-ui/package.json":   `{"name": "custom-ui", "scripts": {"dev": "vite"}}`,
+				"api/nest-cli.json":        `{}`,
+				"api/package.json":         `{"name": "api", "scripts": {"dev": "nest start --watch"}}`,
+			},
+			wantServices: []string{"Backend", "Custom-Ui"},
 			wantPorts: map[string]int{
-				"Dev": 3000,
+				"Backend":   3000,
+				"Custom-Ui": 5174,
+			},
+			wantCommands: map[string]string{
+				"Backend":   "npm run dev",
+				"Custom-Ui": "npm run dev",
+			},
+		},
+		{
+			name: "detects monorepo apps/web with vite and apps/api with pom.xml spring boot",
+			setupFiles: map[string]string{
+				"apps/web/vite.config.js":                            `export default {}`,
+				"apps/web/package.json":                             `{"name": "web"}`,
+				"apps/api/pom.xml":                                  `<project><groupId>com.example</groupId><artifactId>api</artifactId><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.2.0</version></parent></project>`,
+				"apps/api/src/main/resources/application.properties": "server.port=8088\n",
+			},
+			wantServices: []string{"Backend", "Frontend"},
+			wantPorts: map[string]int{
+				"Backend":  8088,
+				"Frontend": 5173,
+			},
+			wantCommands: map[string]string{
+				"Backend":  "mvn spring-boot:run",
+				"Frontend": "npm run dev",
+			},
+		},
+		{
+			name: "prioritizes dev prefix compose and extracts all compose services without script fallback",
+			setupFiles: map[string]string{
+				"package.json":           `{"name": "full-stack", "scripts": {"dev": "vite"}}`,
+				"docker-compose.yml":     "services:\n  prod_web:\n    ports:\n      - \"80:80\"\n",
+				"dev.docker-compose.yml": "services:\n  web:\n    ports:\n      - \"3000:3000\"\n  api:\n    ports:\n      - \"127.0.0.1:8080:80\"\n  db:\n    ports:\n      - \"5432:5432\"\n  redis:\n    image: redis:alpine\n",
+			},
+			wantServices: []string{"web", "api", "db", "redis"},
+			wantPorts: map[string]int{
+				"web":   3000,
+				"api":   8080,
+				"db":    5432,
+				"redis": 0,
+			},
+			wantCommands: map[string]string{
+				"web":   "docker compose -f dev.docker-compose.yml logs -f --tail=100 web",
+				"api":   "docker compose -f dev.docker-compose.yml logs -f --tail=100 api",
+				"db":    "docker compose -f dev.docker-compose.yml logs -f --tail=100 db",
+				"redis": "docker compose -f dev.docker-compose.yml logs -f --tail=100 redis",
+			},
+		},
+		{
+			name: "prioritizes compose.dev.yaml with long syntax ports",
+			setupFiles: map[string]string{
+				"compose.yaml": "services:\n  prod:\n    ports:\n      - \"80:80\"\n",
+				"compose.dev.yaml": `services:
+  gateway:
+    ports:
+      - target: 80
+        published: 9090
+        protocol: tcp
+  worker:
+    image: worker:latest
+`,
+			},
+			wantServices: []string{"gateway", "worker"},
+			wantPorts: map[string]int{
+				"gateway": 9090,
+				"worker":  0,
+			},
+			wantCommands: map[string]string{
+				"gateway": "docker compose -f compose.dev.yaml logs -f --tail=100 gateway",
+				"worker":  "docker compose -f compose.dev.yaml logs -f --tail=100 worker",
+			},
+		},
+		{
+			name: "detects dev compose in subdirectories like docker/dev.docker-compose.yml",
+			setupFiles: map[string]string{
+				"docker-compose.yml": "services:\n  prod_db:\n    ports:\n      - \"5432:5432\"\n",
+				"docker/dev.docker-compose.yml": `services:
+  api:
+    ports:
+      - "4000:4000"
+`,
+			},
+			wantServices: []string{"api"},
+			wantPorts: map[string]int{
+				"api": 4000,
+			},
+			wantCommands: map[string]string{
+				"api": "docker compose -f docker/dev.docker-compose.yml logs -f --tail=100 api",
 			},
 		},
 	}
@@ -238,4 +335,122 @@ func TestLoadOrDetect_MultiCandidate(t *testing.T) {
 	if len(cfg.Services) != 1 || cfg.Services[0].Name != "API" {
 		t.Fatalf("unexpected services: %+v", cfg.Services)
 	}
+}
+
+func TestDetectComposeFile_Priority(t *testing.T) {
+	t.Run("prioritizes dev prefix over infix and standard", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.yml"), []byte(""), 0644)
+		_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.dev.yml"), []byte(""), 0644)
+		_ = os.WriteFile(filepath.Join(tmpDir, "dev.docker-compose.yml"), []byte(""), 0644)
+
+		got := DetectComposeFile(tmpDir)
+		if got != "dev.docker-compose.yml" {
+			t.Errorf("DetectComposeFile = %q, want %q", got, "dev.docker-compose.yml")
+		}
+	})
+
+	t.Run("prioritizes dev infix over standard", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(tmpDir, "compose.yaml"), []byte(""), 0644)
+		_ = os.WriteFile(filepath.Join(tmpDir, "compose.dev.yaml"), []byte(""), 0644)
+
+		got := DetectComposeFile(tmpDir)
+		if got != "compose.dev.yaml" {
+			t.Errorf("DetectComposeFile = %q, want %q", got, "compose.dev.yaml")
+		}
+	})
+
+	t.Run("prioritizes development infix over standard", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.yml"), []byte(""), 0644)
+		_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.development.yml"), []byte(""), 0644)
+
+		got := DetectComposeFile(tmpDir)
+		if got != "docker-compose.development.yml" {
+			t.Errorf("DetectComposeFile = %q, want %q", got, "docker-compose.development.yml")
+		}
+	})
+
+	t.Run("falls back to standard compose when no dev compose exists", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(tmpDir, "docker-compose.yml"), []byte(""), 0644)
+
+		got := DetectComposeFile(tmpDir)
+		if got != "docker-compose.yml" {
+			t.Errorf("DetectComposeFile = %q, want %q", got, "docker-compose.yml")
+		}
+	})
+}
+
+func TestExtractHostPort(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int
+	}{
+		{"3000:3000", 3000},
+		{"8080:80/tcp", 8080},
+		{"127.0.0.1:5432:5432", 5432},
+		{"0.0.0.0:6379:6379/tcp", 6379},
+		{"8000-8005:8000-8005", 8000},
+		{"3000", 0},
+		{"", 0},
+	}
+
+	for _, tt := range tests {
+		got := extractHostPort(tt.input)
+		if got != tt.want {
+			t.Errorf("extractHostPort(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestInitConfigFile(t *testing.T) {
+	t.Run("creates new config with detected services", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_ = os.MkdirAll(filepath.Join(tmpDir, "server"), 0755)
+		_ = os.WriteFile(filepath.Join(tmpDir, "server", "package.json"), []byte(`{"name": "server", "scripts": {"dev": "bun --watch src/index.ts"}}`), 0644)
+		_ = os.MkdirAll(filepath.Join(tmpDir, "web"), 0755)
+		_ = os.WriteFile(filepath.Join(tmpDir, "web", "package.json"), []byte(`{"name": "web", "scripts": {"dev": "vite"}}`), 0644)
+
+		path, err := InitConfigFile(tmpDir, false)
+		if err != nil {
+			t.Fatalf("InitConfigFile error: %v", err)
+		}
+
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected config file at %s to exist: %v", path, err)
+		}
+
+		cfg, err := LoadOrDetect(tmpDir, "")
+		if err != nil {
+			t.Fatalf("LoadOrDetect error: %v", err)
+		}
+
+		if len(cfg.Services) != 2 {
+			t.Fatalf("expected 2 services in created config, got %d", len(cfg.Services))
+		}
+		if cfg.Services[0].Name != "Backend" || cfg.Services[0].Dir != "server" {
+			t.Errorf("unexpected first service: %+v", cfg.Services[0])
+		}
+		if cfg.Services[1].Name != "Frontend" || cfg.Services[1].Dir != "web" {
+			t.Errorf("unexpected second service: %+v", cfg.Services[1])
+		}
+	})
+
+	t.Run("fails if config already exists without force", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(tmpDir, ".dev-tui.json"), []byte(`{}`), 0644)
+
+		_, err := InitConfigFile(tmpDir, false)
+		if err == nil {
+			t.Fatalf("expected error when config file already exists without force")
+		}
+
+		// With force, it should overwrite
+		_, err = InitConfigFile(tmpDir, true)
+		if err != nil {
+			t.Fatalf("expected success with force=true, got: %v", err)
+		}
+	})
 }

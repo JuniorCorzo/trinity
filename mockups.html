@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>trinity — Mockup Interfaz TUI (Lazygit Base + Sidebar Colapsable)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-oled: #000000;
+      --bg-mantle: #09090d;
+      --bg-surface: #111118;
+      --bg-card: #13131d;
+      --border-subtle: #222230;
+      --border-active: #cba6f7;
+      --border-green: #a6e3a1;
+      --border-cyan: #74c7ec;
+      --text-primary: #cdd6f4;
+      --text-muted: #6c7086;
+      --text-dim: #45475a;
+      
+      --accent-db: #a6e3a1;    /* Verde Vim */
+      --accent-api: #cba6f7;   /* Mauve */
+      --accent-web: #74c7ec;   /* Sky/Cyan */
+      --accent-warn: #f9e2af;  /* Peach/Yellow */
+      --accent-err: #f38ba8;   /* Red */
+      --git-color: #f38ba8;    /* Git Orange/Coral */
+      
+      --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-oled);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    header {
+      max-width: 1200px;
+      margin: 0 auto 20px auto;
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 14px;
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--text-primary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-desc {
+      font-size: 13.5px;
+      color: var(--text-muted);
+    }
+
+    .toolbar {
+      max-width: 1200px;
+      margin: 0 auto 16px auto;
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--bg-mantle);
+      border: 1px solid var(--border-subtle);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn-toggle {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-toggle:hover {
+      border-color: var(--accent-api);
+      color: #fff;
+    }
+
+    .btn-toggle.active {
+      background: rgba(203, 166, 247, 0.15);
+      border-color: var(--accent-api);
+      color: var(--accent-api);
+    }
+
+    .preview-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+      flex: 1;
+    }
+
+    /* Terminal Frame */
+    .terminal-window {
+      background: var(--bg-oled);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      overflow: hidden;
+      min-height: 580px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header Bar */
+    .tui-header {
+      background: var(--bg-mantle);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .tui-header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .app-title {
+      color: #fff;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .git-badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      transition: all 0.15s ease;
+    }
+
+    .git-badge-pill:hover {
+      border-color: var(--text-muted);
+    }
+
+    .tui-header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: var(--text-dim);
+      font-size: 11.5px;
+    }
+
+    /* Main Grid */
+    .tui-body {
+      display: grid;
+      grid-template-columns: 310px 1fr;
+      flex: 1;
+      height: 520px;
+      transition: grid-template-columns 0.25s cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .tui-body.collapsed {
+      grid-template-columns: 52px 1fr;
+    }
+
+    .tui-body.hidden-sidebar {
+      grid-template-columns: 0px 1fr;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      border-right: 1px solid var(--border-subtle);
+      background: #020205;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      gap: 8px;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 2px 4px 6px 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      margin-bottom: 4px;
+      color: var(--text-dim);
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Service Cards (Outline Style) */
+    .service-card {
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 10px 12px;
+      background: var(--bg-card);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .service-card:hover {
+      border-color: var(--text-muted);
+    }
+
+    .service-card.active {
+      border-color: var(--accent-api);
+      background: rgba(203, 166, 247, 0.03);
+      box-shadow: 0 0 15px rgba(203, 166, 247, 0.05);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .service-identity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .service-port {
+      font-size: 11px;
+      border: 1px solid var(--border-subtle);
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: var(--bg-surface);
+    }
+
+    .card-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+      padding-left: 24px;
+    }
+
+    /* Collapsed Sidebar Icon State */
+    .tui-body.collapsed .sidebar {
+      padding: 10px 6px;
+      align-items: center;
+    }
+
+    .tui-body.collapsed .sidebar-header {
+      display: none;
+    }
+
+    .tui-body.collapsed .service-card {
+      padding: 10px 0;
+      width: 38px;
+      height: 42px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tui-body.collapsed .service-identity span:not(.outline-icon),
+    .tui-body.collapsed .service-port,
+    .tui-body.collapsed .card-meta,
+    .tui-body.collapsed .sidebar-footer {
+      display: none;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 8px;
+      border-top: 1px dashed var(--border-subtle);
+      font-size: 11px;
+      color: var(--text-dim);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    /* Log Viewport */
+    .log-viewport {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding: 14px 18px;
+      background: var(--bg-oled);
+      overflow-y: hidden;
+      font-size: 12.5px;
+    }
+
+    .log-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+      color: var(--text-muted);
+      font-size: 11.5px;
+    }
+
+    .log-stream {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow-y: auto;
+    }
+
+    .log-row {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      padding: 1px 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .log-ts { color: var(--text-dim); min-width: 65px; font-size: 11.5px; }
+    
+    .log-badge-db {
+      color: var(--accent-db);
+      border: 1px solid rgba(166, 227, 161, 0.25);
+      padding: 0 4px;
+      border-radius: 2px;
+      min-width: 52px;
+      text-align: center;
+      font-size: 10.5px;
+    }
+
+    .log-badge-api {
+      color: var(--accent-api);
+      border: 1px solid rgba(203, 166, 247, 0.25);
+      padding: 0 4px;
+      border-radius: 2px;
+      min-width: 52px;
+      text-align: center;
+      font-size: 10.5px;
+    }
+
+    .log-badge-web {
+      color: var(--accent-web);
+      border: 1px solid rgba(116, 199, 236, 0.25);
+      padding: 0 4px;
+      border-radius: 2px;
+      min-width: 52px;
+      text-align: center;
+      font-size: 10.5px;
+    }
+
+    .log-text { color: var(--text-primary); flex: 1; }
+    .log-num { color: var(--accent-warn); }
+
+    /* Footer */
+    .tui-footer {
+      background: var(--bg-mantle);
+      border-top: 1px solid var(--border-subtle);
+      padding: 6px 14px;
+      display: flex;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+      align-items: center;
+    }
+
+    .key-hint {
+      color: var(--accent-api);
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .mode-tag {
+      border: 1px solid var(--accent-api);
+      color: var(--accent-api);
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 2px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    /* Outline SVG Icons */
+    .svg-icon {
+      width: 14px;
+      height: 14px;
+      stroke-width: 1.8;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vertical-align: middle;
+      display: inline-block;
+    }
+
+    .status-ring {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1.8px solid var(--accent-db);
+      display: inline-block;
+      box-shadow: 0 0 5px rgba(166, 227, 161, 0.3);
+    }
+
+    .status-ring.amber {
+      border-color: var(--accent-warn);
+    }
+    
+    .status-ring.dim {
+      border-color: var(--text-dim);
+    }
+
+    /* Explanation Banner */
+    .notes-card {
+      max-width: 1200px;
+      margin: 20px auto 0 auto;
+      width: 100%;
+      background: var(--bg-mantle);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      font-size: 13px;
+    }
+
+    .note-col h4 {
+      font-size: 13px;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .note-col p {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand-title">
+      <div class="brand-logo">
+        <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="12 2 2 22 22 22"></polygon></svg>
+        <span>trinity</span>
+      </div>
+      <div class="brand-desc">Base Lazygit · Iconos Outline · Mismo Logo Git para Rama y Worktree</div>
+    </div>
+    <div style="font-family: var(--font-mono); font-size: 12px; color: var(--accent-api);">
+      Presiona <kbd style="background:var(--border-subtle); padding:2px 6px; border-radius:3px;">b</kbd> para colapsar / expandir
+    </div>
+  </header>
+
+  <!-- Interactive Controls Toolbar -->
+  <div class="toolbar">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="color:var(--text-muted);">Sidebar:</span>
+        <span id="state-label" style="color:#fff; font-weight:600;">Expandido</span>
+      </div>
+
+      <div style="border-left: 1px solid var(--border-subtle); height: 18px; margin: 0 4px;"></div>
+
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="color:var(--text-muted);">Simular Git:</span>
+        <button class="btn-toggle active" id="btn-git-branch" onclick="setGitMode('branch')" style="padding:4px 8px; font-size:11px;">
+          Solo Rama (Repo Base)
+        </button>
+        <button class="btn-toggle" id="btn-git-wt" onclick="setGitMode('worktree')" style="padding:4px 8px; font-size:11px;">
+          Solo Worktree (Linked WT)
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar-actions">
+      <button class="btn-toggle active" id="btn-expanded" onclick="setSidebar('expanded')">
+        <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+        <span>Expandido</span>
+      </button>
+
+      <button class="btn-toggle" id="btn-compact" onclick="setSidebar('collapsed')">
+        <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6" y2="21"></line></svg>
+        <span>Compacto</span>
+      </button>
+
+      <button class="btn-toggle" id="btn-hidden" onclick="setSidebar('hidden')">
+        <svg class="svg-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+        <span>Oculto</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Terminal Window -->
+  <div class="preview-container">
+    <div class="terminal-window">
+      
+      <!-- Top Bar -->
+      <div class="tui-header">
+        <div class="tui-header-left">
+          <span class="app-title">
+            <svg class="svg-icon" viewBox="0 0 24 24" style="stroke:var(--accent-api);"><polygon points="12 2 2 22 22 22"></polygon></svg>
+            <span>TRINITY</span>
+          </span>
+          
+          <!-- Mutually exclusive Git Badge (Either Branch OR Worktree, NEVER both) -->
+          <span class="git-badge-pill" id="git-badge-container" title="Excluyente: Muestra la rama O el worktree, nunca ambos">
+            <svg class="svg-icon" viewBox="0 0 24 24" style="stroke:var(--accent-db);">
+              <line x1="6" y1="3" x2="6" y2="15"></line>
+              <circle cx="18" cy="6" r="3"></circle>
+              <circle cx="6" cy="18" r="3"></circle>
+              <path d="M18 9a9 9 0 0 1-9 9"></path>
+            </svg>
+            <span id="git-badge-name" style="color:var(--accent-db); font-weight:600;">main*</span>
+            <span id="git-badge-sha" style="color:var(--text-dim); font-size:10.5px;">(70c158b)</span>
+          </span>
+        </div>
+
+        <div class="tui-header-right">
+          <span><span class="status-ring"></span> 3/3 Activos</span>
+          <span>CPU: 3.8%</span>
+          <span>MEM: 340MB</span>
+          <span>15:15:30</span>
+        </div>
+      </div>
+
+      <!-- Main Body -->
+      <div class="tui-body" id="tui-grid">
+        
+        <!-- Sidebar -->
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <span>Servicios</span>
+            <span style="color:var(--accent-api);">[Tab]</span>
+          </div>
+
+          <!-- Service 1: DB -->
+          <div class="service-card active">
+            <div class="card-top">
+              <div class="service-identity">
+                <!-- Outline Database Cylinder -->
+                <svg class="svg-icon outline-icon" viewBox="0 0 24 24" style="stroke:var(--accent-db);">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                </svg>
+                <span>[1] Postgres DB</span>
+              </div>
+              <span class="service-port" style="color:var(--accent-db);">:5432</span>
+            </div>
+            <div class="card-meta">
+              <span>Compose · up 12m</span>
+              <span style="color:var(--accent-db);"><span class="status-ring"></span> up</span>
+            </div>
+          </div>
+
+          <!-- Service 2: API -->
+          <div class="service-card">
+            <div class="card-top">
+              <div class="service-identity">
+                <!-- Outline Terminal / Server Code -->
+                <svg class="svg-icon outline-icon" viewBox="0 0 24 24" style="stroke:var(--accent-api);">
+                  <polyline points="4 17 10 11 4 5"></polyline>
+                  <line x1="12" y1="19" x2="20" y2="19"></line>
+                </svg>
+                <span>[2] Backend API</span>
+              </div>
+              <span class="service-port" style="color:var(--accent-api);">:3001</span>
+            </div>
+            <div class="card-meta">
+              <span>Bun/Hono · up 11m</span>
+              <span style="color:var(--accent-api);"><span class="status-ring" style="border-color:var(--accent-api)"></span> up</span>
+            </div>
+          </div>
+
+          <!-- Service 3: Frontend -->
+          <div class="service-card">
+            <div class="card-top">
+              <div class="service-identity">
+                <!-- Outline Browser Layout / Web -->
+                <svg class="svg-icon outline-icon" viewBox="0 0 24 24" style="stroke:var(--accent-web);">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="8" y1="21" x2="16" y2="21"></line>
+                  <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+                <span>[3] Frontend Web</span>
+              </div>
+              <span class="service-port" style="color:var(--accent-web);">:5173</span>
+            </div>
+            <div class="card-meta">
+              <span>Vite · up 11m</span>
+              <span style="color:var(--accent-web);"><span class="status-ring" style="border-color:var(--accent-web)"></span> up</span>
+            </div>
+          </div>
+
+          <div class="sidebar-footer">
+            <div><span class="key-hint">b</span> Toggle Sidebar</div>
+            <div><span class="key-hint">0</span> Ver todos los logs</div>
+            <div><span class="key-hint">r</span> Reiniciar servicio</div>
+            <div><span class="key-hint">w</span> Modal Worktrees</div>
+          </div>
+        </div>
+
+        <!-- Log Viewport -->
+        <div class="log-viewport">
+          <div class="log-top-bar">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-weight:600; color:#fff;">[0] STREAM COMBINADO</span>
+              <span style="font-size:11px; color:var(--text-dim);">· 3 servicios vinculados</span>
+            </div>
+            <div style="display:flex; gap:14px; font-size:11px;">
+              <span>Auto-scroll: <span style="color:var(--accent-db);">ON</span></span>
+              <span>Buffer: 620 líneas</span>
+              <span id="collapse-hint" style="color:var(--accent-api);">[b] Colapsar sidebar</span>
+            </div>
+          </div>
+
+          <!-- Realistic Dev Logs -->
+          <div class="log-stream">
+            <div class="log-row"><span class="log-ts">15:10:01</span><span class="log-badge-db">db</span><span class="log-text">PostgreSQL 16.2 database server ready on port 5432 (max connections: 100)</span></div>
+            <div class="log-row"><span class="log-ts">15:10:03</span><span class="log-badge-api">api</span><span class="log-text">[auth] Redis connection established · token cache initialized</span></div>
+            <div class="log-row"><span class="log-ts">15:10:04</span><span class="log-badge-api">api</span><span class="log-text">[router] Initialized 24 endpoints in 4ms · Listening at http://127.0.0.1:3001</span></div>
+            <div class="log-row"><span class="log-ts">15:10:06</span><span class="log-badge-web">web</span><span class="log-text">VITE v5.4.2 ready in <span class="log-num">180ms</span> ➜ Local: http://localhost:5173/</span></div>
+            <div class="log-row"><span class="log-ts">15:10:14</span><span class="log-badge-api">api</span><span class="log-text">GET /api/v1/health <span style="color:var(--accent-db);">200 OK</span> - 0.8ms</span></div>
+            <div class="log-row"><span class="log-ts">15:11:02</span><span class="log-badge-api">api</span><span class="log-text">POST /api/v1/auth/login <span style="color:var(--accent-db);">200 OK</span> - 14.2ms [user: dev@local]</span></div>
+            <div class="log-row"><span class="log-ts">15:11:03</span><span class="log-badge-db">db</span><span class="log-text">SELECT * FROM accounts WHERE email = $1 LIMIT 1 [exec: <span class="log-num">0.6ms</span>]</span></div>
+            <div class="log-row"><span class="log-ts">15:12:45</span><span class="log-badge-web">web</span><span class="log-text">[hmr] updated /src/routes/Dashboard.tsx (3 components re-rendered)</span></div>
+            <div class="log-row"><span class="log-ts">15:13:10</span><span class="log-badge-api">api</span><span class="log-text">GET /api/v1/projects <span style="color:var(--accent-db);">200 OK</span> - 2.1ms (cache hit)</span></div>
+            <div class="log-row"><span class="log-ts">15:14:00</span><span class="log-badge-db">db</span><span class="log-text">checkpoint complete: wrote 42 buffers; 0 WAL added</span></div>
+            <div class="log-row"><span class="log-ts">15:15:20</span><span class="log-badge-web">web</span><span class="log-text">[hmr] updated /src/components/Sidebar.tsx</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer Bar -->
+      <div class="tui-footer">
+        <span class="mode-tag">NORMAL</span>
+        <span><span class="key-hint">b</span> Sidebar</span>
+        <span><span class="key-hint">Tab / 1..3</span> Servicios</span>
+        <span><span class="key-hint">w</span> Git Worktrees</span>
+        <span><span class="key-hint">r</span> Restart</span>
+        <span><span class="key-hint">s</span> Stop/Start</span>
+        <span><span class="key-hint">v</span> Copy mode</span>
+        <span style="margin-left: auto;"><span class="key-hint">q</span> Salir</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Design Notes -->
+  <div class="notes-card">
+    <div class="note-col">
+      <h4>
+        <svg class="svg-icon" viewBox="0 0 24 24" style="stroke:var(--accent-api);"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+        Sidebar con 3 Estados
+      </h4>
+      <p>
+        <strong>Expandido:</strong> 310px con nombres y puertos completos.<br>
+        <strong>Compacto:</strong> 52px mostrando solo los iconos outline y anillos de estado.<br>
+        <strong>Oculto:</strong> 100% de ancho de pantalla para debugging y logs extensos.
+      </p>
+    </div>
+
+    <div class="note-col">
+      <h4>
+        <svg class="svg-icon" viewBox="0 0 24 24" style="stroke:var(--accent-db);"><circle cx="12" cy="12" r="9"></circle></svg>
+        Iconos Estilo Outline
+      </h4>
+      <p>
+        Reemplazamos emojis y bloques sólidos por glifos vectoriales lineales y anillos de estado circulares (<span class="status-ring"></span>), manteniendo la estética sobria de terminal sin ruido visual.
+      </p>
+    </div>
+
+    <div class="note-col">
+      <h4>
+        <!-- Official Git Branch Outline Icon -->
+        <svg class="svg-icon" viewBox="0 0 24 24" style="stroke:var(--git-color);">
+          <line x1="6" y1="3" x2="6" y2="15"></line>
+          <circle cx="18" cy="6" r="3"></circle>
+          <circle cx="6" cy="18" r="3"></circle>
+          <path d="M18 9a9 9 0 0 1-9 9"></path>
+        </svg>
+        Mutuamente Excluyentes
+      </h4>
+      <p>
+        Si estás en un <strong>worktree enlazado</strong>, muestra únicamente el worktree: <code>[  wt:auth-v2 (70c158b) ]</code>.<br>
+        Si estás en el <strong>repositorio base</strong>, muestra únicamente la rama: <code>[  main* (70c158b) ]</code>.<br>
+        Nunca se muestran juntos.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    let currentMode = 'expanded';
+
+    function setGitMode(mode) {
+      const nameEl = document.getElementById('git-badge-name');
+      const shaEl = document.getElementById('git-badge-sha');
+      const btnBranch = document.getElementById('btn-git-branch');
+      const btnWt = document.getElementById('btn-git-wt');
+      const icon = document.querySelector('#git-badge-container svg');
+
+      if (mode === 'branch') {
+        nameEl.textContent = 'main*';
+        nameEl.style.color = 'var(--accent-db)';
+        icon.style.stroke = 'var(--accent-db)';
+        shaEl.textContent = '(70c158b)';
+        btnBranch.classList.add('active');
+        btnWt.classList.remove('active');
+      } else {
+        nameEl.textContent = 'wt:feature/auth-v2*';
+        nameEl.style.color = 'var(--accent-api)';
+        icon.style.stroke = 'var(--accent-api)';
+        shaEl.textContent = '(70c158b)';
+        btnWt.classList.add('active');
+        btnBranch.classList.remove('active');
+      }
+    }
+
+    function setSidebar(mode) {
+      const grid = document.getElementById('tui-grid');
+      const label = document.getElementById('state-label');
+      const hint = document.getElementById('collapse-hint');
+      
+      document.querySelectorAll('.toolbar-actions .btn-toggle').forEach(b => b.classList.remove('active'));
+
+      grid.classList.remove('collapsed', 'hidden-sidebar');
+
+      if (mode === 'expanded') {
+        currentMode = 'expanded';
+        label.textContent = 'Expandido (310px)';
+        hint.textContent = "[b] Colapsar sidebar";
+        document.getElementById('btn-expanded').classList.add('active');
+      } else if (mode === 'collapsed') {
+        currentMode = 'collapsed';
+        grid.classList.add('collapsed');
+        label.textContent = 'Compacto (52px - solo iconos)';
+        hint.textContent = "[b] Ocultar / Expandir";
+        document.getElementById('btn-compact').classList.add('active');
+      } else if (mode === 'hidden') {
+        currentMode = 'hidden';
+        grid.classList.add('hidden-sidebar');
+        label.textContent = 'Oculto (100% Logs)';
+        hint.textContent = "[b] Mostrar sidebar";
+        document.getElementById('btn-hidden').classList.add('active');
+      }
+    }
+
+    // Toggle on 'b' key press
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'b' || e.key === 'B') {
+        if (currentMode === 'expanded') {
+          setSidebar('collapsed');
+        } else if (currentMode === 'collapsed') {
+          setSidebar('hidden');
+        } else {
+          setSidebar('expanded');
+        }
+      }
+    });
+  </script>
+</body>
+</html>

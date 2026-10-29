@@ -4,10 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/goleak"
+
 	"github.com/juniorcorzo/dev-tui/internal/config"
 )
 
 func TestService_LogRingBuffer(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	s := NewService(0, config.ServiceConfig{Name: "Test"}, "/tmp")
 
 	for i := 0; i < 10; i++ {
@@ -31,6 +34,7 @@ func TestService_LogRingBuffer(t *testing.T) {
 }
 
 func TestManager_Lifecycle(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	if testing.Short() {
 		t.Skip("skipping process execution test in short mode")
 	}

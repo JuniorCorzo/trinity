@@ -3,16 +3,22 @@ package service
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/juniorcorzo/dev-tui/internal/config"
+)
+
+var (
+	ErrInvalidServiceID = errors.New("invalid service id")
 )
 
 type Status string
@@ -36,13 +42,14 @@ const maxLogLines = 2000
 type Service struct {
 	mu sync.RWMutex
 
-	ID          int
-	Name        string
-	Command     string
-	Dir         string
-	Port        int
-	Type        config.ServiceType
-	ComposeFile string
+	ID             int
+	Name           string
+	Command        string
+	Dir            string
+	Port           int
+	Type           config.ServiceType
+	ComposeFile    string
+	ComposeService string
 
 	Status    Status
 	PID       int
@@ -51,25 +58,29 @@ type Service struct {
 
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
+	done   chan struct{}
 
 	logs []LogEntry
 }
 
 func NewService(id int, cfg config.ServiceConfig, rootDir string) *Service {
 	dir := cfg.Dir
-	if dir == "" {
+	if dir == "" || dir == "." {
 		dir = rootDir
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(rootDir, dir)
 	}
 	return &Service{
-		ID:          id,
-		Name:        cfg.Name,
-		Command:     cfg.Command,
-		Dir:         dir,
-		Port:        cfg.Port,
-		Type:        cfg.Type,
-		ComposeFile: cfg.ComposeFile,
-		Status:      StatusStopped,
-		logs:        make([]LogEntry, 0, 100),
+		ID:             id,
+		Name:           cfg.Name,
+		Command:        cfg.Command,
+		Dir:            dir,
+		Port:           cfg.Port,
+		Type:           cfg.Type,
+		ComposeFile:    cfg.ComposeFile,
+		ComposeService: cfg.ComposeService,
+		Status:         StatusStopped,
+		logs:           make([]LogEntry, 0, 100),
 	}
 }
 
@@ -242,10 +253,14 @@ func (m *Manager) runProcessService(s *Service, ctx context.Context) {
 		return
 	}
 
+	done := make(chan struct{})
+	defer close(done)
+
 	s.mu.Lock()
 	s.cmd = cmd
 	s.PID = cmd.Process.Pid
 	s.StartTime = time.Now()
+	s.done = done
 	s.mu.Unlock()
 
 	var wg sync.WaitGroup
@@ -284,7 +299,12 @@ func (m *Manager) runComposeService(s *Service, ctx context.Context) {
 	if s.ComposeFile != "" {
 		composeFileFlag = fmt.Sprintf("-f %s", s.ComposeFile)
 	}
-	upCmd := fmt.Sprintf("docker compose %s up -d", composeFileFlag)
+	targetService := ""
+	if s.ComposeService != "" {
+		targetService = " " + s.ComposeService
+	}
+
+	upCmd := fmt.Sprintf("docker compose %s up -d%s", composeFileFlag, targetService)
 	s.appendLog(LogEntry{
 		Timestamp:   time.Now(),
 		ServiceID:   s.ID,
@@ -294,15 +314,30 @@ func (m *Manager) runComposeService(s *Service, ctx context.Context) {
 
 	initCmd := exec.CommandContext(ctx, "sh", "-c", upCmd)
 	initCmd.Dir = s.Dir
-	_ = initCmd.Run()
+	if err := initCmd.Run(); err != nil && ctx.Err() == nil {
+		s.mu.Lock()
+		s.Status = StatusFailed
+		s.LastError = fmt.Sprintf("failed to run %s: %v", upCmd, err)
+		s.mu.Unlock()
+		m.notifyStatus()
+		return
+	}
 
 	s.mu.Lock()
-	s.Status = StatusRunning
 	s.StartTime = time.Now()
+	if s.Port > 0 {
+		s.Status = StatusStarting
+	} else {
+		s.Status = StatusRunning
+	}
 	s.mu.Unlock()
 	m.notifyStatus()
 
-	logsCmdStr := fmt.Sprintf("docker compose %s logs -f --tail=100", composeFileFlag)
+	if s.Port > 0 {
+		go m.probePort(s, ctx)
+	}
+
+	logsCmdStr := fmt.Sprintf("docker compose %s logs -f --tail=100%s", composeFileFlag, targetService)
 	cmd := exec.CommandContext(ctx, "sh", "-c", logsCmdStr)
 	cmd.Dir = s.Dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -312,9 +347,13 @@ func (m *Manager) runComposeService(s *Service, ctx context.Context) {
 		stderr, err2 := cmd.StderrPipe()
 		if err2 == nil {
 			if err := cmd.Start(); err == nil {
+				done := make(chan struct{})
+				defer close(done)
+
 				s.mu.Lock()
 				s.cmd = cmd
 				s.PID = cmd.Process.Pid
+				s.done = done
 				s.mu.Unlock()
 
 				var wg sync.WaitGroup
@@ -358,11 +397,23 @@ func (m *Manager) streamPipe(s *Service, r io.Reader, wg *sync.WaitGroup) {
 func (m *Manager) probePort(s *Service, ctx context.Context) {
 	ticker := time.NewTicker(300 * time.Millisecond)
 	defer ticker.Stop()
+	timeout := time.NewTimer(15 * time.Second)
+	defer timeout.Stop()
 
 	target := fmt.Sprintf("127.0.0.1:%d", s.Port)
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-timeout.C:
+			s.mu.Lock()
+			if s.Status == StatusStarting {
+				s.Status = StatusRunning
+				s.mu.Unlock()
+				m.notifyStatus()
+			} else {
+				s.mu.Unlock()
+			}
 			return
 		case <-ticker.C:
 			s.mu.RLock()
@@ -376,9 +427,13 @@ func (m *Manager) probePort(s *Service, ctx context.Context) {
 			if err == nil {
 				_ = conn.Close()
 				s.mu.Lock()
-				s.Status = StatusRunning
-				s.mu.Unlock()
-				m.notifyStatus()
+				if s.Status == StatusStarting {
+					s.Status = StatusRunning
+					s.mu.Unlock()
+					m.notifyStatus()
+				} else {
+					s.mu.Unlock()
+				}
 				return
 			}
 		}
@@ -387,7 +442,7 @@ func (m *Manager) probePort(s *Service, ctx context.Context) {
 
 func (m *Manager) StopService(id int) error {
 	if id < 0 || id >= len(m.Services) {
-		return fmt.Errorf("invalid service id: %d", id)
+		return fmt.Errorf("%w: %d", ErrInvalidServiceID, id)
 	}
 	s := m.Services[id]
 
@@ -398,6 +453,7 @@ func (m *Manager) StopService(id int) error {
 	}
 	cancel := s.cancel
 	cmd := s.cmd
+	done := s.done
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -405,11 +461,20 @@ func (m *Manager) StopService(id int) error {
 	}
 
 	if cmd != nil && cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-		go func(pid int) {
-			time.Sleep(1 * time.Second)
-			_ = syscall.Kill(-pid, syscall.SIGKILL)
-		}(cmd.Process.Pid)
+		pid := cmd.Process.Pid
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+		if done != nil {
+			go func(p int, ch <-chan struct{}) {
+				timer := time.NewTimer(1 * time.Second)
+				defer timer.Stop()
+				select {
+				case <-ch:
+					return
+				case <-timer.C:
+					_ = syscall.Kill(-p, syscall.SIGKILL)
+				}
+			}(pid, done)
+		}
 	}
 
 	if s.Type == config.TypeCompose {
@@ -417,7 +482,11 @@ func (m *Manager) StopService(id int) error {
 		if s.ComposeFile != "" {
 			composeFileFlag = fmt.Sprintf("-f %s", s.ComposeFile)
 		}
-		stopCmd := exec.Command("sh", "-c", fmt.Sprintf("docker compose %s stop", composeFileFlag))
+		targetService := ""
+		if s.ComposeService != "" {
+			targetService = " " + s.ComposeService
+		}
+		stopCmd := exec.Command("sh", "-c", fmt.Sprintf("docker compose %s stop%s", composeFileFlag, targetService))
 		stopCmd.Dir = s.Dir
 		_ = stopCmd.Run()
 	}

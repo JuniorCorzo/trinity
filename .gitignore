@@ -2,5 +2,8 @@ bin/
 dist/
 *.exe
 *.test
+*.log
+.trinity.log
+.dev-tui.log
 # Local AI runtime state
 .atl/
